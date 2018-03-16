@@ -2,5 +2,8 @@
 name = "sht3x"
 version = "0.1.0"
 authors = ["Mike Walters <mike@flomp.net>"]
+keywords = ["embedded-hal"]
+categories = ["no-std"]
 
 [dependencies]
+embedded-hal = "0.1.1"
