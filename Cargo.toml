@@ -1,0 +1,6 @@
+[package]
+name = "sht3x"
+version = "0.1.0"
+authors = ["Mike Walters <mike@flomp.net>"]
+
+[dependencies]
