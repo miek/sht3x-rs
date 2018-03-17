@@ -33,6 +33,17 @@ where
             .map_err(Error::I2c)
     }
 
+    pub fn measure(&mut self) -> Result<Measurement, Error<E>> {
+        self.command(Command::SingleShot(ClockStretch::Disabled, Repeatability::High))?;
+        self.delay.delay_ms(15);
+        let mut buf = [0; 6];
+        self.i2c.read(self.address as u8, &mut buf)
+                .map_err(Error::I2c)?;
+        let temperature = convert_temperature(BigEndian::read_u16(&buf[0..2]));
+        let humidity = convert_humidity(BigEndian::read_u16(&buf[3..5]));
+        Ok(Measurement{ temperature, humidity })
+    }
+
     pub fn status(&mut self) -> Result<u16, Error<E>> {
         self.command(Command::Status)?;
         let mut status_bytes = [0; 2];
@@ -41,6 +52,14 @@ where
             .map_err(Error::I2c)?;
         Ok(BigEndian::read_u16(&status_bytes))
     }
+}
+
+fn convert_temperature(raw: u16) -> f32 {
+    -45.0 + 175.0 * raw as f32 / 65535.0
+}
+
+fn convert_humidity(raw: u16) -> f32 {
+    100.0 * raw as f32 / 65535.0
 }
 
 /// Errors
@@ -89,6 +108,12 @@ enum Repeatability {
     High,
     Medium,
     Low,
+}
+
+#[derive(Debug)]
+pub struct Measurement {
+    pub temperature: f32,
+    pub humidity: f32,
 }
 
 impl Command {

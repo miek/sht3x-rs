@@ -11,4 +11,8 @@ fn main() {
     let mut sht31 = SHT3x::new(dev, Delay, Address::Low);
 
     println!("Status raw: {:?}", sht31.status().unwrap());
+    loop {
+        let m = sht31.measure().unwrap();
+        println!("Temp: {:.2} Humidity: {:.2}", m.temperature, m.humidity);
+    }
 }
