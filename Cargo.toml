@@ -6,4 +6,8 @@ keywords = ["embedded-hal"]
 categories = ["no-std"]
 
 [dependencies]
+byteorder = { version = "1", default-features = false }
 embedded-hal = "0.1.1"
+
+[dev-dependencies]
+linux-embedded-hal = "0.1.1"

@@ -2,7 +2,10 @@
 
 #![no_std]
 
+extern crate byteorder;
 extern crate embedded_hal;
+
+use byteorder::{ByteOrder, BigEndian};
 
 use embedded_hal::blocking::delay::DelayMs;
 use embedded_hal::blocking::i2c::{Read, Write, WriteRead};
@@ -10,6 +13,7 @@ use embedded_hal::blocking::i2c::{Read, Write, WriteRead};
 pub struct SHT3x<I2C, D> {
     i2c: I2C,
     delay: D,
+    address: Address,
 }
 
 impl<I2C, D, E> SHT3x<I2C, D>
@@ -17,7 +21,41 @@ where
     I2C: Read<Error = E> + Write<Error = E> + WriteRead<Error = E>,
     D: DelayMs<u8>,
 {
+    pub fn new(i2c: I2C, delay: D, address: Address) -> Self {
+        SHT3x { i2c, delay, address }
+    }
 
+    fn command(&mut self, command: Command) -> Result<(), Error<E>> {
+        let mut cmd_bytes = [0; 2];
+        BigEndian::write_u16(&mut cmd_bytes, command.value());
+        self.i2c
+            .write(self.address as u8, &cmd_bytes)
+            .map_err(Error::I2c)
+    }
+
+    pub fn status(&mut self) -> Result<u16, Error<E>> {
+        self.command(Command::Status)?;
+        let mut status_bytes = [0; 2];
+        self.i2c
+            .read(self.address as u8, &mut status_bytes)
+            .map_err(Error::I2c)?;
+        Ok(BigEndian::read_u16(&status_bytes))
+    }
+}
+
+/// Errors
+#[derive(Debug)]
+pub enum Error<E> {
+    /// Wrong CRC
+    Crc,
+    /// I2C bus error
+    I2c(E),
+}
+
+#[derive(Copy, Clone)]
+pub enum Address {
+    High = 0x45,
+    Low = 0x44,
 }
 
 enum Command {
