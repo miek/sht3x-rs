@@ -54,12 +54,12 @@ where
     }
 }
 
-fn convert_temperature(raw: u16) -> f32 {
-    -45.0 + 175.0 * raw as f32 / 65535.0
+fn convert_temperature(raw: u16) -> i32 {
+    -4500 + (17500 * raw as i32) / 65535
 }
 
-fn convert_humidity(raw: u16) -> f32 {
-    100.0 * raw as f32 / 65535.0
+fn convert_humidity(raw: u16) -> i32 {
+    (10000 * raw as i32) / 65535
 }
 
 /// Errors
@@ -112,8 +112,8 @@ enum Repeatability {
 
 #[derive(Debug)]
 pub struct Measurement {
-    pub temperature: f32,
-    pub humidity: f32,
+    pub temperature: i32,
+    pub humidity: i32,
 }
 
 impl Command {
