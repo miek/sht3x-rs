@@ -1,9 +1,11 @@
 [package]
-name = "sht3x"
-version = "0.1.0"
 authors = ["Mike Walters <mike@flomp.net>"]
-keywords = ["embedded-hal"]
-categories = ["no-std"]
+categories = ["embedded", "hardware-support", "no-std"]
+description = "Rust driver for Sensirion SHT3x series digital temperature/humidity sensors."
+keywords = ["embedded-hal-driver", "temperature", "humidity", "sensirion", "sht30", "sht31", "sht35"]
+name = "sht3x"
+repository = "https://github.com/miek/sht3x-rs"
+version = "0.1.1"
 
 [dependencies]
 byteorder = { version = "1", default-features = false }
