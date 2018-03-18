@@ -2,7 +2,7 @@ extern crate linux_embedded_hal as hal;
 extern crate sht3x;
 
 use hal::{Delay, I2cdev};
-use sht3x::{SHT3x, Address};
+use sht3x::{SHT3x, Address, Repeatability};
 
 fn main() {
     println!("Hello, SHT31!");
@@ -12,7 +12,7 @@ fn main() {
 
     println!("Status raw: {:?}", sht31.status().unwrap());
     loop {
-        let m = sht31.measure().unwrap();
+        let m = sht31.measure(Repeatability::High).unwrap();
         println!("Temp: {:.2} Humidity: {:.2}", m.temperature, m.humidity);
     }
 }

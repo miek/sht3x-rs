@@ -33,9 +33,9 @@ where
             .map_err(Error::I2c)
     }
 
-    pub fn measure(&mut self) -> Result<Measurement, Error<E>> {
-        self.command(Command::SingleShot(ClockStretch::Disabled, Repeatability::High))?;
-        self.delay.delay_ms(15);
+    pub fn measure(&mut self, rpt: Repeatability) -> Result<Measurement, Error<E>> {
+        self.command(Command::SingleShot(ClockStretch::Disabled, rpt))?;
+        self.delay.delay_ms(rpt.max_duration());
         let mut buf = [0; 6];
         self.i2c.read(self.address as u8, &mut buf)
                 .map_err(Error::I2c)?;
@@ -104,10 +104,22 @@ enum Rate {
     R10,
 }
 
-enum Repeatability {
+#[derive(Copy, Clone)]
+pub enum Repeatability {
     High,
     Medium,
     Low,
+}
+
+impl Repeatability {
+    /// Maximum measurement duration in milliseconds
+    fn max_duration(&self) -> u8 {
+        match *self {
+            Repeatability::Low => 4,
+            Repeatability::Medium => 6,
+            Repeatability::High => 15,
+        }
+    }
 }
 
 #[derive(Debug)]
