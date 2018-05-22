@@ -2,7 +2,7 @@
 authors = ["Mike Walters <mike@flomp.net>"]
 categories = ["embedded", "hardware-support", "no-std"]
 description = "Rust driver for Sensirion SHT3x series digital temperature/humidity sensors."
-keywords = ["embedded-hal-driver", "temperature", "humidity", "sensirion", "sht30", "sht31", "sht35"]
+keywords = ["embedded-hal-driver", "sht30", "sht31", "sht35"]
 name = "sht3x"
 repository = "https://github.com/miek/sht3x-rs"
 version = "0.1.1"
