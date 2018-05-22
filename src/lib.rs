@@ -21,10 +21,12 @@ where
     I2C: Read<Error = E> + Write<Error = E> + WriteRead<Error = E>,
     D: DelayMs<u8>,
 {
+	/// Creates a new driver
     pub fn new(i2c: I2C, delay: D, address: Address) -> Self {
         SHT3x { i2c, delay, address }
     }
 
+	/// Send an I2C command
     fn command(&mut self, command: Command) -> Result<(), Error<E>> {
         let mut cmd_bytes = [0; 2];
         BigEndian::write_u16(&mut cmd_bytes, command.value());
@@ -33,6 +35,7 @@ where
             .map_err(Error::I2c)
     }
 
+	/// Take a temperature and humidity measurement
     pub fn measure(&mut self, rpt: Repeatability) -> Result<Measurement, Error<E>> {
         self.command(Command::SingleShot(ClockStretch::Disabled, rpt))?;
         self.delay.delay_ms(rpt.max_duration());
@@ -44,6 +47,7 @@ where
         Ok(Measurement{ temperature, humidity })
     }
 
+	/// Read the status register
     pub fn status(&mut self) -> Result<u16, Error<E>> {
         self.command(Command::Status)?;
         let mut status_bytes = [0; 2];
@@ -71,9 +75,12 @@ pub enum Error<E> {
     I2c(E),
 }
 
+/// I2C address
 #[derive(Copy, Clone)]
 pub enum Address {
+	/// Address pin held high
     High = 0x45,
+	/// Address pin held low
     Low = 0x44,
 }
 
@@ -95,12 +102,18 @@ enum ClockStretch {
     Disabled,
 }
 
+/// Periodic data acquisition rate
 #[allow(non_camel_case_types)]
 enum Rate {
+	/// 0.5 measurements per second
     R0_5,
+	/// 1 measurement per second
     R1,
+	/// 2 measurements per second
     R2,
+	/// 4 measurements per second
     R4,
+	/// 10 measurements per second
     R10,
 }
 
