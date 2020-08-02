@@ -42,6 +42,19 @@ where
         let mut buf = [0; 6];
         self.i2c.read(self.address as u8, &mut buf)
                 .map_err(Error::I2c)?;
+
+        // Check crc
+        let temperature_crc = buf[2];
+        let humidity_crc = buf[5];
+        let temperature_calculated_crc = crc8(&buf[0..2]);
+        let humidity_calculated_crc = crc8(&buf[3..5]);
+        if temperature_crc != temperature_calculated_crc {
+            return Err(Error::Crc)
+        }
+        if humidity_crc != humidity_calculated_crc {
+            return Err(Error::Crc)
+        }
+
         let temperature = convert_temperature(BigEndian::read_u16(&buf[0..2]));
         let humidity = convert_humidity(BigEndian::read_u16(&buf[3..5]));
         Ok(Measurement{ temperature, humidity })
@@ -64,6 +77,21 @@ fn convert_temperature(raw: u16) -> i32 {
 
 fn convert_humidity(raw: u16) -> i32 {
     (10000 * raw as i32) / 65535
+}
+
+fn crc8(data: &[u8]) -> u8 {
+    let mut crc: u8 = 0xff;
+    for byte in data {
+        crc ^= byte;
+        for _ in 0..8 {
+            if (crc & 0x80) > 0 {
+                crc = (crc << 1) ^ 0x31;
+            } else {
+                crc <<= 1;
+            }
+        }
+    }
+    crc
 }
 
 /// Errors
