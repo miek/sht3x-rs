@@ -8,11 +8,11 @@ fn main() {
     println!("Hello, SHT31!");
 
     let dev = I2cdev::new("/dev/i2c-1").unwrap();
-    let mut sht31 = SHT3x::new(dev, Delay, Address::Low);
+    let mut sht31 = SHT3x::new(dev, Address::Low);
 
     println!("Status raw: {:?}", sht31.status().unwrap());
     loop {
-        let m = sht31.measure(Repeatability::High).unwrap();
+        let m = sht31.measure(Repeatability::High, &mut Delay).unwrap();
         println!("Temp: {:.2} Humidity: {:.2}", m.temperature, m.humidity);
     }
 }
