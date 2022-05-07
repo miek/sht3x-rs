@@ -10,20 +10,18 @@ use byteorder::{ByteOrder, BigEndian};
 use embedded_hal::blocking::delay::DelayMs;
 use embedded_hal::blocking::i2c::{Read, Write, WriteRead};
 
-pub struct SHT3x<I2C, D> {
+pub struct SHT3x<I2C> {
     i2c: I2C,
-    delay: D,
     address: Address,
 }
 
-impl<I2C, D, E> SHT3x<I2C, D>
+impl<I2C, E> SHT3x<I2C>
 where
     I2C: Read<Error = E> + Write<Error = E> + WriteRead<Error = E>,
-    D: DelayMs<u8>,
 {
 	/// Creates a new driver
-    pub fn new(i2c: I2C, delay: D, address: Address) -> Self {
-        SHT3x { i2c, delay, address }
+    pub fn new(i2c: I2C, address: Address) -> Self {
+        SHT3x { i2c, address }
     }
 
 	/// Send an I2C command
@@ -36,12 +34,25 @@ where
     }
 
 	/// Take a temperature and humidity measurement
-    pub fn measure(&mut self, rpt: Repeatability) -> Result<Measurement, Error<E>> {
+    pub fn measure<D: DelayMs<u8>>(&mut self, rpt: Repeatability, delay: &mut D) -> Result<Measurement, Error<E>> {
         self.command(Command::SingleShot(ClockStretch::Disabled, rpt))?;
-        self.delay.delay_ms(rpt.max_duration());
+        delay.delay_ms(rpt.max_duration());
         let mut buf = [0; 6];
         self.i2c.read(self.address as u8, &mut buf)
                 .map_err(Error::I2c)?;
+
+        // Check crc
+        let temperature_crc = buf[2];
+        let humidity_crc = buf[5];
+        let temperature_calculated_crc = crc8(&buf[0..2]);
+        let humidity_calculated_crc = crc8(&buf[3..5]);
+        if temperature_crc != temperature_calculated_crc {
+            return Err(Error::Crc)
+        }
+        if humidity_crc != humidity_calculated_crc {
+            return Err(Error::Crc)
+        }
+
         let temperature = convert_temperature(BigEndian::read_u16(&buf[0..2]));
         let humidity = convert_humidity(BigEndian::read_u16(&buf[3..5]));
         Ok(Measurement{ temperature, humidity })
@@ -66,6 +77,21 @@ fn convert_humidity(raw: u16) -> i32 {
     (10000 * raw as i32) / 65535
 }
 
+fn crc8(data: &[u8]) -> u8 {
+    let mut crc: u8 = 0xff;
+    for byte in data {
+        crc ^= byte;
+        for _ in 0..8 {
+            if (crc & 0x80) > 0 {
+                crc = (crc << 1) ^ 0x31;
+            } else {
+                crc <<= 1;
+            }
+        }
+    }
+    crc
+}
+
 /// Errors
 #[derive(Debug)]
 pub enum Error<E> {
@@ -84,6 +110,7 @@ pub enum Address {
     Low = 0x44,
 }
 
+#[allow(unused)]
 enum Command {
     SingleShot(ClockStretch, Repeatability),
     Periodic(Rate, Repeatability),
@@ -97,13 +124,14 @@ enum Command {
     ClearStatus,
 }
 
+#[allow(unused)]
 enum ClockStretch {
     Enabled,
     Disabled,
 }
 
 /// Periodic data acquisition rate
-#[allow(non_camel_case_types)]
+#[allow(non_camel_case_types, unused)]
 enum Rate {
 	/// 0.5 measurements per second
     R0_5,
