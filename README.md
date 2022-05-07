@@ -16,7 +16,6 @@ This driver was built using [`embedded-hal`] traits.
 
 ## TODO
 
-- [ ] Do CRC checking
 - [ ] Implement ALERT functionality
 - [ ] Implement periodic measurements
 - [ ] Reset command

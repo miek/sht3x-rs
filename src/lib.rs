@@ -235,7 +235,10 @@ impl Command {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
-    fn it_works() {
+    fn test_crc() {
+	assert_eq!(crc8(&[0xBE, 0xEF]), 0x92);
     }
 }
