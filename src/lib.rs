@@ -2,6 +2,7 @@
 
 #![no_std]
 
+use bitflags::bitflags;
 use embedded_hal::blocking::delay::DelayMs;
 use embedded_hal::blocking::i2c::{Read, Write, WriteRead};
 
@@ -38,24 +39,11 @@ where
         self.i2c.read(self.address as u8, &mut buf)
                 .map_err(Error::I2c)?;
 
-        // Check temperature CRC.
-        let temperature_bytes = [buf[0], buf[1]];
-        let temperature_calculated_crc = crc8(temperature_bytes);
-        let temperature_crc = buf[2];
-        if temperature_crc != temperature_calculated_crc {
-            return Err(Error::Crc)
-        }
+        let temperature = check_crc([buf[0], buf[1]], buf[2])
+            .map(convert_temperature)?;
+        let humidity = check_crc([buf[3], buf[4]], buf[5])
+            .map(convert_humidity)?;
 
-        // Check humidity CRC.
-        let humidity_bytes = [buf[3], buf[4]];
-        let humidity_calculated_crc = crc8(humidity_bytes);
-        let humidity_crc = buf[5];
-        if humidity_crc != humidity_calculated_crc {
-            return Err(Error::Crc)
-        }
-
-        let temperature = convert_temperature(u16::from_be_bytes(temperature_bytes));
-        let humidity = convert_humidity(u16::from_be_bytes(humidity_bytes));
         Ok(Measurement{ temperature, humidity })
     }
 
@@ -68,13 +56,20 @@ where
     }
 
     /// Read the status register.
-    pub fn status(&mut self) -> Result<u16, Error<E>> {
+    pub fn status(&mut self) -> Result<Status, Error<E>> {
         self.command(Command::Status)?;
-        let mut status_bytes = [0; 2];
+        let mut buf = [0; 3];
         self.i2c
-            .read(self.address as u8, &mut status_bytes)
+            .read(self.address as u8, &mut buf)
             .map_err(Error::I2c)?;
-        Ok(u16::from_be_bytes(status_bytes))
+
+        let status = check_crc([buf[0], buf[1]], buf[2])?;
+        Ok(Status::from_bits_truncate(status))
+    }
+
+    /// Clear the status register.
+    pub fn clear_status(&mut self) -> Result<(), Error<E>> {
+        self.command(Command::ClearStatus)
     }
 }
 
@@ -86,6 +81,18 @@ const fn convert_humidity(raw: u16) -> u16 {
     ((10000 * raw as u32) / 65535) as u16
 }
 
+/// Compare the CRC of the input array to the given CRC checksum.
+fn check_crc<E>(data: [u8; 2], crc: u8) -> Result<u16, Error<E>> {
+    let calculated_crc = crc8(data);
+
+    if calculated_crc == crc {
+        Ok(u16::from_be_bytes(data))
+    } else {
+        Err(Error::Crc)
+    }
+}
+
+/// Calculate the CRC8 checksum for the given input array.
 fn crc8(data: [u8; 2]) -> u8 {
     let mut crc: u8 = 0xff;
 
@@ -244,6 +251,26 @@ impl Command {
 pub struct Measurement {
     pub temperature: i32,
     pub humidity: u16,
+}
+
+bitflags! {
+    /// Status register
+    pub struct Status: u16 {
+        /// Alert pending status
+        const ALERT_PENDING         = 1 << 15;
+        /// Heater status
+        const HEATER                = 1 << 13;
+        /// RH tracking alert
+        const RH_TRACKING_ALERT     = 1 << 11;
+        /// T tracking alert
+        const T_TRACKING_ALERT      = 1 << 10;
+        /// System reset detected
+        const SYSTEM_RESET_DETECTED = 1 <<  4;
+        /// Command status
+        const COMMAND               = 1 <<  1;
+        /// Write data checksum status
+        const WRITE_DATA_CHECKSUM   = 1 <<  0;
+    }
 }
 
 #[cfg(test)]
