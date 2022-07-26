@@ -31,8 +31,8 @@ where
     }
 
     /// Take a temperature and humidity measurement.
-    pub fn measure<D: DelayMs<u8>>(&mut self, rpt: Repeatability, delay: &mut D) -> Result<Measurement, Error<E>> {
-        self.command(Command::SingleShot(ClockStretch::Disabled, rpt))?;
+    pub fn measure<D: DelayMs<u8>>(&mut self, cs: ClockStretch, rpt: Repeatability, delay: &mut D) -> Result<Measurement, Error<E>> {
+        self.command(Command::SingleShot(cs, rpt))?;
         delay.delay_ms(rpt.max_duration());
         let mut buf = [0; 6];
         self.i2c.read(self.address as u8, &mut buf)
@@ -122,8 +122,9 @@ pub enum Address {
     Low = 0x44,
 }
 
-#[allow(unused)]
-enum ClockStretch {
+/// Clock stretching
+#[derive(Debug)]
+pub enum ClockStretch {
     Enabled,
     Disabled,
 }
