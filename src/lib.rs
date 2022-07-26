@@ -82,8 +82,8 @@ const fn convert_temperature(raw: u16) -> i32 {
     -4500 + (17500 * raw as i32) / 65535
 }
 
-const fn convert_humidity(raw: u16) -> i32 {
-    (10000 * raw as i32) / 65535
+const fn convert_humidity(raw: u16) -> u16 {
+    ((10000 * raw as u32) / 65535) as u16
 }
 
 fn crc8(data: [u8; 2]) -> u8 {
@@ -242,7 +242,7 @@ impl Command {
 #[derive(Debug)]
 pub struct Measurement {
     pub temperature: i32,
-    pub humidity: i32,
+    pub humidity: u16,
 }
 
 #[cfg(test)]
