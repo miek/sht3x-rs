@@ -2,16 +2,12 @@
 
 #![no_std]
 
-extern crate byteorder;
-extern crate embedded_hal;
-
-use byteorder::{ByteOrder, BigEndian};
-
 use embedded_hal::blocking::delay::DelayMs;
 use embedded_hal::blocking::i2c::{Read, Write, WriteRead};
 
 const SOFT_RESET_TIME_MS: u8 = 1;
 
+#[derive(Debug, Clone)]
 pub struct SHT3x<I2C> {
     i2c: I2C,
     address: Address,
@@ -21,21 +17,20 @@ impl<I2C, E> SHT3x<I2C>
 where
     I2C: Read<Error = E> + Write<Error = E> + WriteRead<Error = E>,
 {
-	/// Creates a new driver
-    pub fn new(i2c: I2C, address: Address) -> Self {
+    /// Creates a new driver.
+    pub const fn new(i2c: I2C, address: Address) -> Self {
         SHT3x { i2c, address }
     }
 
-	/// Send an I2C command
+    /// Send an I2C command.
     fn command(&mut self, command: Command) -> Result<(), Error<E>> {
-        let mut cmd_bytes = [0; 2];
-        BigEndian::write_u16(&mut cmd_bytes, command.value());
+        let cmd_bytes = command.value().to_be_bytes();
         self.i2c
             .write(self.address as u8, &cmd_bytes)
             .map_err(Error::I2c)
     }
 
-	/// Take a temperature and humidity measurement
+    /// Take a temperature and humidity measurement.
     pub fn measure<D: DelayMs<u8>>(&mut self, rpt: Repeatability, delay: &mut D) -> Result<Measurement, Error<E>> {
         self.command(Command::SingleShot(ClockStretch::Disabled, rpt))?;
         delay.delay_ms(rpt.max_duration());
@@ -43,20 +38,24 @@ where
         self.i2c.read(self.address as u8, &mut buf)
                 .map_err(Error::I2c)?;
 
-        // Check crc
+        // Check temperature CRC.
+        let temperature_bytes = [buf[0], buf[1]];
+        let temperature_calculated_crc = crc8(temperature_bytes);
         let temperature_crc = buf[2];
-        let humidity_crc = buf[5];
-        let temperature_calculated_crc = crc8(&buf[0..2]);
-        let humidity_calculated_crc = crc8(&buf[3..5]);
         if temperature_crc != temperature_calculated_crc {
             return Err(Error::Crc)
         }
+
+        // Check humidity CRC.
+        let humidity_bytes = [buf[3], buf[4]];
+        let humidity_calculated_crc = crc8(humidity_bytes);
+        let humidity_crc = buf[5];
         if humidity_crc != humidity_calculated_crc {
             return Err(Error::Crc)
         }
 
-        let temperature = convert_temperature(BigEndian::read_u16(&buf[0..2]));
-        let humidity = convert_humidity(BigEndian::read_u16(&buf[3..5]));
+        let temperature = convert_temperature(u16::from_be_bytes(temperature_bytes));
+        let humidity = convert_humidity(u16::from_be_bytes(humidity_bytes));
         Ok(Measurement{ temperature, humidity })
     }
 
@@ -75,30 +74,33 @@ where
         self.i2c
             .read(self.address as u8, &mut status_bytes)
             .map_err(Error::I2c)?;
-        Ok(BigEndian::read_u16(&status_bytes))
+        Ok(u16::from_be_bytes(status_bytes))
     }
 }
 
-fn convert_temperature(raw: u16) -> i32 {
+const fn convert_temperature(raw: u16) -> i32 {
     -4500 + (17500 * raw as i32) / 65535
 }
 
-fn convert_humidity(raw: u16) -> i32 {
+const fn convert_humidity(raw: u16) -> i32 {
     (10000 * raw as i32) / 65535
 }
 
-fn crc8(data: &[u8]) -> u8 {
+fn crc8(data: [u8; 2]) -> u8 {
     let mut crc: u8 = 0xff;
+
     for byte in data {
         crc ^= byte;
+
         for _ in 0..8 {
-            if (crc & 0x80) > 0 {
+            if crc & 0x80 > 0 {
                 crc = (crc << 1) ^ 0x31;
             } else {
                 crc <<= 1;
             }
         }
     }
+
     crc
 }
 
@@ -112,12 +114,51 @@ pub enum Error<E> {
 }
 
 /// I2C address
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum Address {
-	/// Address pin held high
+    /// Address pin held high
     High = 0x45,
-	/// Address pin held low
+    /// Address pin held low
     Low = 0x44,
+}
+
+#[allow(unused)]
+enum ClockStretch {
+    Enabled,
+    Disabled,
+}
+
+/// Periodic data acquisition rate
+#[allow(non_camel_case_types, unused)]
+enum Rate {
+    /// 0.5 measurements per second
+    R0_5,
+    /// 1 measurement per second
+    R1,
+    /// 2 measurements per second
+    R2,
+    /// 4 measurements per second
+    R4,
+    /// 10 measurements per second
+    R10,
+}
+
+#[derive(Copy, Clone)]
+pub enum Repeatability {
+    High,
+    Medium,
+    Low,
+}
+
+impl Repeatability {
+    /// Maximum measurement duration in milliseconds
+    const fn max_duration(&self) -> u8 {
+        match *self {
+            Repeatability::Low => 4,
+            Repeatability::Medium => 6,
+            Repeatability::High => 15,
+        }
+    }
 }
 
 #[allow(unused)]
@@ -134,53 +175,8 @@ enum Command {
     ClearStatus,
 }
 
-#[allow(unused)]
-enum ClockStretch {
-    Enabled,
-    Disabled,
-}
-
-/// Periodic data acquisition rate
-#[allow(non_camel_case_types, unused)]
-enum Rate {
-	/// 0.5 measurements per second
-    R0_5,
-	/// 1 measurement per second
-    R1,
-	/// 2 measurements per second
-    R2,
-	/// 4 measurements per second
-    R4,
-	/// 10 measurements per second
-    R10,
-}
-
-#[derive(Copy, Clone)]
-pub enum Repeatability {
-    High,
-    Medium,
-    Low,
-}
-
-impl Repeatability {
-    /// Maximum measurement duration in milliseconds
-    fn max_duration(&self) -> u8 {
-        match *self {
-            Repeatability::Low => 4,
-            Repeatability::Medium => 6,
-            Repeatability::High => 15,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct Measurement {
-    pub temperature: i32,
-    pub humidity: i32,
-}
-
 impl Command {
-    fn value(&self) -> u16 {
+    const fn value(&self) -> u16 {
         use ClockStretch::Enabled as CSEnabled;
         use ClockStretch::Disabled as CSDisabled;
         use Rate::*;
@@ -243,12 +239,18 @@ impl Command {
     }
 }
 
+#[derive(Debug)]
+pub struct Measurement {
+    pub temperature: i32,
+    pub humidity: i32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_crc() {
-	assert_eq!(crc8(&[0xBE, 0xEF]), 0x92);
+        assert_eq!(crc8([0xBE, 0xEF]), 0x92);
     }
 }
