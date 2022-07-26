@@ -8,18 +8,18 @@ use embedded_hal::blocking::i2c::{Read, Write, WriteRead};
 const SOFT_RESET_TIME_MS: u8 = 1;
 
 #[derive(Debug, Clone)]
-pub struct SHT3x<I2C> {
+pub struct Sht3x<I2C> {
     i2c: I2C,
     address: Address,
 }
 
-impl<I2C, E> SHT3x<I2C>
+impl<I2C, E> Sht3x<I2C>
 where
     I2C: Read<Error = E> + Write<Error = E> + WriteRead<Error = E>,
 {
     /// Creates a new driver.
     pub const fn new(i2c: I2C, address: Address) -> Self {
-        SHT3x { i2c, address }
+        Self { i2c, address }
     }
 
     /// Send an I2C command.
