@@ -10,7 +10,6 @@ use byteorder::{ByteOrder, BigEndian};
 use embedded_hal::blocking::delay::DelayMs;
 use embedded_hal::blocking::i2c::{Read, Write, WriteRead};
 
-const POWER_UP_TIME_MS: u8 = 1;
 const SOFT_RESET_TIME_MS: u8 = 1;
 
 pub struct SHT3x<I2C> {
@@ -61,15 +60,10 @@ where
         Ok(Measurement{ temperature, humidity })
     }
 
-    /// Reset the sensor
-    pub fn reset<D: DelayMs<u8>>(&mut self, soft: bool, delay: &mut D) -> Result<(), Error<E>> {
-        if soft {
-            self.command(Command::SoftReset)?;
-            delay.delay_ms(SOFT_RESET_TIME_MS);
-        } else {
-            self.command(Command::GeneralReset)?;
-            delay.delay_ms(POWER_UP_TIME_MS);
-        }
+    /// Soft reset the sensor.
+    pub fn reset<D: DelayMs<u8>>(&mut self, delay: &mut D) -> Result<(), Error<E>> {
+        self.command(Command::SoftReset)?;
+        delay.delay_ms(SOFT_RESET_TIME_MS);
 
         Ok(())
     }
@@ -134,7 +128,6 @@ enum Command {
     PeriodicWithART,
     Break,
     SoftReset,
-    GeneralReset,
     HeaterEnable,
     HeaterDisable,
     Status,
@@ -235,8 +228,6 @@ impl Command {
             // 4.9 Reset
             // Table 13
             Command::SoftReset => 0x30A2,
-            // Table 14
-            Command::GeneralReset => 0x0006,
 
             // 4.10 Heater
             // Table 15
