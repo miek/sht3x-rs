@@ -10,6 +10,8 @@ use byteorder::{ByteOrder, BigEndian};
 use embedded_hal::blocking::delay::DelayMs;
 use embedded_hal::blocking::i2c::{Read, Write, WriteRead};
 
+const SOFT_RESET_TIME_MS: u8 = 1;
+
 pub struct SHT3x<I2C> {
     i2c: I2C,
     address: Address,
@@ -58,7 +60,15 @@ where
         Ok(Measurement{ temperature, humidity })
     }
 
-	/// Read the status register
+    /// Soft reset the sensor.
+    pub fn reset<D: DelayMs<u8>>(&mut self, delay: &mut D) -> Result<(), Error<E>> {
+        self.command(Command::SoftReset)?;
+        delay.delay_ms(SOFT_RESET_TIME_MS);
+
+        Ok(())
+    }
+
+    /// Read the status register.
     pub fn status(&mut self) -> Result<u16, Error<E>> {
         self.command(Command::Status)?;
         let mut status_bytes = [0; 2];

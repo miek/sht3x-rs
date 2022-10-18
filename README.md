@@ -13,12 +13,12 @@ This driver was built using [`embedded-hal`] traits.
 
 - Take a temperature & humidity measurement
 - Read the status register
+- Reset command
 
 ## TODO
 
 - [ ] Implement ALERT functionality
 - [ ] Implement periodic measurements
-- [ ] Reset command
 - [ ] Heater command
 - [ ] Add an option to use the hardware reset pin
 
