@@ -2,103 +2,118 @@
 
 #![no_std]
 
-extern crate byteorder;
-extern crate embedded_hal;
-
-use byteorder::{ByteOrder, BigEndian};
-
+use bitflags::bitflags;
 use embedded_hal::blocking::delay::DelayMs;
 use embedded_hal::blocking::i2c::{Read, Write, WriteRead};
 
+// 2.2 Timing Specification for the Sensor System
+// Table 4
+// TODO: Support longer times needed with lower voltage (Table 5).
 const SOFT_RESET_TIME_MS: u8 = 1;
 
-pub struct SHT3x<I2C> {
+// 4: Operation and Communication
+const COMMAND_WAIT_TIME_MS: u8 = 1;
+
+#[derive(Debug, Clone)]
+pub struct Sht3x<I2C> {
     i2c: I2C,
     address: Address,
 }
 
-impl<I2C, E> SHT3x<I2C>
+impl<I2C, E> Sht3x<I2C>
 where
     I2C: Read<Error = E> + Write<Error = E> + WriteRead<Error = E>,
 {
-	/// Creates a new driver
-    pub fn new(i2c: I2C, address: Address) -> Self {
-        SHT3x { i2c, address }
+    /// Creates a new driver.
+    pub const fn new(i2c: I2C, address: Address) -> Self {
+        Self { i2c, address }
     }
 
-	/// Send an I2C command
-    fn command(&mut self, command: Command) -> Result<(), Error<E>> {
-        let mut cmd_bytes = [0; 2];
-        BigEndian::write_u16(&mut cmd_bytes, command.value());
+    /// Send an I2C command.
+    fn command<D: DelayMs<u8>>(&mut self, command: Command, delay: &mut D, wait_time: Option<u8>) -> Result<(), Error<E>> {
+        let cmd_bytes = command.value().to_be_bytes();
         self.i2c
             .write(self.address as u8, &cmd_bytes)
-            .map_err(Error::I2c)
+            .map_err(Error::I2c)?;
+
+        delay.delay_ms(wait_time.unwrap_or(0).max(COMMAND_WAIT_TIME_MS));
+
+        Ok(())
     }
 
-	/// Take a temperature and humidity measurement
-    pub fn measure<D: DelayMs<u8>>(&mut self, rpt: Repeatability, delay: &mut D) -> Result<Measurement, Error<E>> {
-        self.command(Command::SingleShot(ClockStretch::Disabled, rpt))?;
-        delay.delay_ms(rpt.max_duration());
+    /// Take a temperature and humidity measurement.
+    pub fn measure<D: DelayMs<u8>>(&mut self, cs: ClockStretch, rpt: Repeatability, delay: &mut D) -> Result<Measurement, Error<E>> {
+        self.command(Command::SingleShot(cs, rpt), delay, Some(rpt.max_duration()))?;
         let mut buf = [0; 6];
         self.i2c.read(self.address as u8, &mut buf)
                 .map_err(Error::I2c)?;
 
-        // Check crc
-        let temperature_crc = buf[2];
-        let humidity_crc = buf[5];
-        let temperature_calculated_crc = crc8(&buf[0..2]);
-        let humidity_calculated_crc = crc8(&buf[3..5]);
-        if temperature_crc != temperature_calculated_crc {
-            return Err(Error::Crc)
-        }
-        if humidity_crc != humidity_calculated_crc {
-            return Err(Error::Crc)
-        }
+        let temperature = check_crc([buf[0], buf[1]], buf[2])
+            .map(convert_temperature)?;
+        let humidity = check_crc([buf[3], buf[4]], buf[5])
+            .map(convert_humidity)?;
 
-        let temperature = convert_temperature(BigEndian::read_u16(&buf[0..2]));
-        let humidity = convert_humidity(BigEndian::read_u16(&buf[3..5]));
         Ok(Measurement{ temperature, humidity })
     }
 
     /// Soft reset the sensor.
     pub fn reset<D: DelayMs<u8>>(&mut self, delay: &mut D) -> Result<(), Error<E>> {
-        self.command(Command::SoftReset)?;
-        delay.delay_ms(SOFT_RESET_TIME_MS);
-
-        Ok(())
+        self.command(Command::SoftReset, delay, Some(SOFT_RESET_TIME_MS))
     }
 
     /// Read the status register.
-    pub fn status(&mut self) -> Result<u16, Error<E>> {
-        self.command(Command::Status)?;
-        let mut status_bytes = [0; 2];
+    pub fn status<D: DelayMs<u8>>(&mut self, delay: &mut D) -> Result<Status, Error<E>> {
+        self.command(Command::Status, delay, None)?;
+        let mut buf = [0; 3];
         self.i2c
-            .read(self.address as u8, &mut status_bytes)
+            .read(self.address as u8, &mut buf)
             .map_err(Error::I2c)?;
-        Ok(BigEndian::read_u16(&status_bytes))
+
+        let status = check_crc([buf[0], buf[1]], buf[2])?;
+        Ok(Status::from_bits_truncate(status))
+    }
+
+    /// Clear the status register.
+    pub fn clear_status<D: DelayMs<u8>>(&mut self, delay: &mut D) -> Result<(), Error<E>> {
+        self.command(Command::ClearStatus, delay, None)
     }
 }
 
-fn convert_temperature(raw: u16) -> i32 {
+const fn convert_temperature(raw: u16) -> i32 {
     -4500 + (17500 * raw as i32) / 65535
 }
 
-fn convert_humidity(raw: u16) -> i32 {
-    (10000 * raw as i32) / 65535
+const fn convert_humidity(raw: u16) -> u16 {
+    ((10000 * raw as u32) / 65535) as u16
 }
 
-fn crc8(data: &[u8]) -> u8 {
+/// Compare the CRC of the input array to the given CRC checksum.
+fn check_crc<E>(data: [u8; 2], crc: u8) -> Result<u16, Error<E>> {
+    let calculated_crc = crc8(data);
+
+    if calculated_crc == crc {
+        Ok(u16::from_be_bytes(data))
+    } else {
+        Err(Error::Crc)
+    }
+}
+
+/// Calculate the CRC8 checksum for the given input array.
+fn crc8(data: [u8; 2]) -> u8 {
     let mut crc: u8 = 0xff;
+
     for byte in data {
         crc ^= byte;
+
         for _ in 0..8 {
-            if (crc & 0x80) > 0 {
+            if crc & 0x80 > 0 {
                 crc = (crc << 1) ^ 0x31;
             } else {
                 crc <<= 1;
             }
         }
     }
+
     crc
 }
 
@@ -112,12 +127,52 @@ pub enum Error<E> {
 }
 
 /// I2C address
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum Address {
-	/// Address pin held high
+    /// Address pin held high
     High = 0x45,
-	/// Address pin held low
+    /// Address pin held low
     Low = 0x44,
+}
+
+/// Clock stretching
+#[derive(Debug)]
+pub enum ClockStretch {
+    Enabled,
+    Disabled,
+}
+
+/// Periodic data acquisition rate
+#[allow(non_camel_case_types, unused)]
+enum Rate {
+    /// 0.5 measurements per second
+    R0_5,
+    /// 1 measurement per second
+    R1,
+    /// 2 measurements per second
+    R2,
+    /// 4 measurements per second
+    R4,
+    /// 10 measurements per second
+    R10,
+}
+
+#[derive(Copy, Clone)]
+pub enum Repeatability {
+    High,
+    Medium,
+    Low,
+}
+
+impl Repeatability {
+    /// Maximum measurement duration in milliseconds
+    const fn max_duration(&self) -> u8 {
+        match *self {
+            Repeatability::Low => 4,
+            Repeatability::Medium => 6,
+            Repeatability::High => 15,
+        }
+    }
 }
 
 #[allow(unused)]
@@ -134,53 +189,8 @@ enum Command {
     ClearStatus,
 }
 
-#[allow(unused)]
-enum ClockStretch {
-    Enabled,
-    Disabled,
-}
-
-/// Periodic data acquisition rate
-#[allow(non_camel_case_types, unused)]
-enum Rate {
-	/// 0.5 measurements per second
-    R0_5,
-	/// 1 measurement per second
-    R1,
-	/// 2 measurements per second
-    R2,
-	/// 4 measurements per second
-    R4,
-	/// 10 measurements per second
-    R10,
-}
-
-#[derive(Copy, Clone)]
-pub enum Repeatability {
-    High,
-    Medium,
-    Low,
-}
-
-impl Repeatability {
-    /// Maximum measurement duration in milliseconds
-    fn max_duration(&self) -> u8 {
-        match *self {
-            Repeatability::Low => 4,
-            Repeatability::Medium => 6,
-            Repeatability::High => 15,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct Measurement {
-    pub temperature: i32,
-    pub humidity: i32,
-}
-
 impl Command {
-    fn value(&self) -> u16 {
+    const fn value(&self) -> u16 {
         use ClockStretch::Enabled as CSEnabled;
         use ClockStretch::Disabled as CSDisabled;
         use Rate::*;
@@ -243,12 +253,38 @@ impl Command {
     }
 }
 
+#[derive(Debug)]
+pub struct Measurement {
+    pub temperature: i32,
+    pub humidity: u16,
+}
+
+bitflags! {
+    /// Status register
+    pub struct Status: u16 {
+        /// Alert pending status
+        const ALERT_PENDING         = 1 << 15;
+        /// Heater status
+        const HEATER                = 1 << 13;
+        /// RH tracking alert
+        const RH_TRACKING_ALERT     = 1 << 11;
+        /// T tracking alert
+        const T_TRACKING_ALERT      = 1 << 10;
+        /// System reset detected
+        const SYSTEM_RESET_DETECTED = 1 <<  4;
+        /// Command status
+        const COMMAND               = 1 <<  1;
+        /// Write data checksum status
+        const WRITE_DATA_CHECKSUM   = 1 <<  0;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_crc() {
-	assert_eq!(crc8(&[0xBE, 0xEF]), 0x92);
+        assert_eq!(crc8([0xBE, 0xEF]), 0x92);
     }
 }
